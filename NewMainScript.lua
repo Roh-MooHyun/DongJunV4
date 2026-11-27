@@ -111,6 +111,22 @@ if not shared.VapeDeveloper then
 	pcall(downloadPremadeProfiles, commit)
 end
 
+local function getGuiMode()
+	local path = 'newvape/profiles/guimode.txt'
+	if isfile(path) then
+		local mode = readfile(path):gsub('%s+', '')
+		if mode == 'Lite' or mode == 'V4' then
+			return mode
+		end
+	end
+	writefile(path, 'V4')
+	return 'V4'
+end
+
+local selectedGuiMode = getGuiMode()
+shared.DongJunGuiMode = selectedGuiMode
+
 return loadstring(downloadFile('newvape/main.lua'), 'main')({
-    Username = shared.ValidatedUsername
+	Username = shared.ValidatedUsername,
+	GuiMode = selectedGuiMode
 })
