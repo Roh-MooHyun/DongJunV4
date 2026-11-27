@@ -36,6 +36,40 @@ local cloneref = cloneref or function(obj) return obj end
 local playersService = cloneref(game:GetService('Players'))
 local httpService = cloneref(game:GetService('HttpService'))
 
+local function normalizeGuiMode(mode)
+	if type(mode) ~= 'string' then
+		return nil
+	end
+	local clean = mode:gsub('%s+', ''):lower()
+	if clean == 'lite' then
+		return 'lite'
+	elseif clean == 'new' or clean == 'v4' then
+		return 'new'
+	end
+	return nil
+end
+
+local function readSavedGuiMode()
+	local paths = {'newvape/profiles/gui.txt', 'newvape/profiles/guimode.txt'}
+	for _, path in ipairs(paths) do
+		if isfile(path) then
+			local normalized = normalizeGuiMode(readfile(path))
+			if normalized then
+				return normalized
+			end
+		end
+	end
+	return nil
+end
+
+local function saveGuiMode(mode)
+	local normalized = normalizeGuiMode(mode) or 'new'
+	pcall(writefile, 'newvape/profiles/gui.txt', normalized)
+	pcall(writefile, 'newvape/profiles/guimode.txt', normalized == 'lite' and 'Lite' or 'V4')
+	shared.DongJunGuiMode = normalized == 'lite' and 'Lite' or 'V4'
+	return normalized
+end
+
 local function downloadFile(path, func)
 	if not isfile(path) then
 		local res
@@ -97,6 +131,80 @@ local function migrateProfiles()
 end
 pcall(migrateProfiles)
 
+local gui = readSavedGuiMode() or normalizeGuiMode(shared.DongJunGuiMode) or 'new'
+saveGuiMode(gui)
+
+local function switchGuiMode(nextMode)
+	local normalized = normalizeGuiMode(nextMode)
+	if not normalized or normalized == gui then
+		return
+	end
+	saveGuiMode(normalized)
+	shared.vapereload = true
+	pcall(function()
+		if vape and vape.Save then
+			vape:Save()
+		end
+	end)
+	task.defer(function()
+		pcall(function()
+			if shared.vape and shared.vape.Uninject then
+				shared.vape:Uninject()
+			end
+		end)
+		local ok, err = pcall(function()
+			_realLoadstring(downloadFile('newvape/main.lua'), 'main')({
+				Username = shared.ValidatedUsername,
+				GuiMode = normalized == 'lite' and 'Lite' or 'V4'
+			})
+		end)
+		if not ok then
+			warn('[DongJunV4] Failed to switch GUI mode: ' .. tostring(err))
+		end
+	end)
+end
+
+local function attachGuiModeSwitcher(ui)
+	if not ui then return end
+	ui.SetGuiMode = function(_, mode)
+		switchGuiMode(mode)
+	end
+	ui.GetGuiMode = function()
+		return gui == 'lite' and 'Lite' or 'V4'
+	end
+	ui.SwitchGuiMode = function(_, mode)
+		if mode then
+			switchGuiMode(mode)
+		else
+			switchGuiMode(gui == 'lite' and 'new' or 'lite')
+		end
+	end
+
+	local targetCategory = ui.Categories and (ui.Categories.GUI or ui.Categories.Settings or ui.Categories.Utility)
+	if targetCategory and type(targetCategory.CreateOptionsButton) == 'function' then
+		pcall(function()
+			local modeButton = targetCategory:CreateOptionsButton({
+				Name = 'GuiMode',
+				Function = function(callback)
+					if callback then
+						switchGuiMode(gui == 'lite' and 'new' or 'lite')
+					end
+				end
+			})
+			if modeButton and type(modeButton.CreateDropdown) == 'function' then
+				modeButton:CreateDropdown({
+					Name = 'Theme',
+					List = {'V4', 'Lite'},
+					Default = gui == 'lite' and 'Lite' or 'V4',
+					Function = function(val)
+						switchGuiMode(val)
+					end
+				})
+			end
+		end)
+	end
+end
+
 local function finishLoading()
 	vape.Init = nil
 	if not vape.Load then
@@ -105,6 +213,7 @@ local function finishLoading()
 	end
 	
 	pcall(function() vape:Load() end)
+	attachGuiModeSwitcher(vape)
 	
 	vape:Clean(task.spawn(function()
 		repeat
@@ -165,11 +274,6 @@ local ASSETS_NEW = {
 	'friendstab.png', 'expandup.png', 'expandright.png',
 	'guiicon.png', 'settingsicon.png', 'checkbox.png', 'barlogo.png'
 }
-
-if not isfile('newvape/profiles/gui.txt') then
-	writefile('newvape/profiles/gui.txt', 'new')
-end
-local gui = readfile('newvape/profiles/gui.txt')
 
 if not isfolder('newvape/assets/' .. gui) then
 	makefolder('newvape/assets/' .. gui)
